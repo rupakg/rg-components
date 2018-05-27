@@ -1,0 +1,12 @@
+{
+  "name": "aws-cloudwatch-metric-alarm",
+  "version": "0.1.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "aws-sdk": "^2.224.1"
+  }
+}

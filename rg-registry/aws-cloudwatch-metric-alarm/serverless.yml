@@ -1,0 +1,95 @@
+type: aws-cloudwatch-metric-alarm
+version: 0.1.0
+core: 0.2.x
+
+description: "Provision AWS CloudWatch Metric Alarms"
+license: Apache-2.0
+author: "Serverless, Inc. <hello@serverless.com> (https://serverless.com)"
+repository: "github:serverless/components"
+
+inputTypes:
+  alarmName:
+    type: string
+    required: true
+    description: "The name for the alarm. This name must be unique within the AWS account."
+  alarmDescription:
+    type: string
+    description: "The description for the alarm."
+  comparisonOperator:
+    type: string
+    required: true
+    description: "The arithmetic operation to use when comparing the specified statistic and threshold. Valid values are: `GreaterThanOrEqualToThreshold` | `GreaterThanThreshold` | `LessThanThreshold` | `LessThanOrEqualToThreshold`"
+  threshold:
+    type: number
+    required: true
+    description: "The value against which the specified statistic is compared."
+  metricName:
+    type: string
+    required: true
+    description: "The name for the metric associated with the alarm."
+  namespace:
+    type: string
+    required: true
+    description: "The namespace for the metric associated with the alarm."
+  dimensions:
+    type: object[]
+    required: true
+    description: "The dimensions for the metric associated with the alarm."
+  period:
+    type: integer
+    required: true
+    description: "The period, in seconds, over which the specified statistic is applied. Valid values are 10, 30, and any multiple of 60, max: 86400.)"
+  evaluationPeriods:
+    type: integer
+    required: true
+    description: "The number of periods over which data is compared to the specified threshold."
+  actionsEnabled:
+    type: boolean
+    description: "Indicates whether actions should be executed during any changes to the alarm state."
+  okActions:
+    type: string[]
+    description: "The actions to execute when this alarm transitions to an `OK` state from any other state. Each action is specified as an Amazon Resource Name (ARN)."
+  alarmActions:
+    type: string[]
+    description: "The actions to execute when this alarm transitions to the `ALARM` state from any other state. Each action is specified as an Amazon Resource Name (ARN)."
+  insufficientDataActions:
+    type: string[]
+    description: "The actions to execute when this alarm transitions to the `INSUFFICIENT_DATA` state from any other state. Each action is specified as an Amazon Resource Name (ARN)."
+  statistic:
+    type: string
+    description: "The statistic for the metric associated with the alarm, other than percentile. Valid values are: `SampleCount` | `Average` | `Sum` | `Minimum` | `Maximum`. Either `statistic` or `extendedStatistic`, but not both."
+  extendedStatistic:
+    type: string
+    description: "The percentile statistic for the metric associated with the alarm. Specify a value between p0.0 and p100. Either `statistic` or `extendedStatistic`, but not both."
+  unit:
+    type: string
+    description: "The unit of measure for the statistic. Valid values are: `Seconds` | `Microseconds` | `Milliseconds` | `Bytes` | `Kilobytes` | `Megabytes` | `Gigabytes` | `Terabytes` | `Bits` | `Kilobits` | `Megabits` | `Gigabits` | `Terabits` | `Percent` | `Count` | `Bytes/Second` | `Kilobytes/Second` | `Megabytes/Second` | `Gigabytes/Second` | `Terabytes/Second` | `Bits/Second` | `Kilobits/Second` | `Megabits/Second` | `Gigabits/Second` | `Terabits/Second` | `Count/Second` | `None`"
+  datapointsToAlarm:
+    type: int
+    description: "The number of datapoints that must be breaching to trigger the alarm."
+  treatMissingData:
+    type: string
+    description: "Sets how this alarm is to handle missing data points. Valid values are: `breaching` | `notBreaching` | `ignore` | `missing`"
+  evaluateLowSampleCountPercentile:
+    type: string
+    description: "Used only for alarms based on percentiles. Valid values are: `evaluate` | `ignore`"
+
+outputTypes:
+  alarmName:
+    type: string
+    description: "The name for the alarm. This name must be unique within the AWS account."
+  alarmArn:
+    type: string
+    description: "The Amazon Resource Name (ARN) of the alarm."
+  alarmConfigurationUpdatedTimestamp:
+    type: string
+    description: "The time stamp of the last update to the alarm configuration."
+  stateValue:
+    type: string
+    description: "The state value for the alarm."
+  stateReason:
+    type: string
+    description: "An explanation for the alarm state, in text format."
+  stateUpdatedTimestamp:
+    type: string
+    description: "The time stamp of the last update to the alarm state."

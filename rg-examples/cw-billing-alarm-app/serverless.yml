@@ -1,0 +1,25 @@
+type: cw-billing-alarm-app
+version: 0.0.1
+
+components:
+  billingAlarm:
+    type: ../../rg-registry/aws-cloudwatch-metric-alarm
+    inputs:
+      alarmName: rg-billing-alarm-${self.serviceId}
+      alarmDescription: 'When Estimated Charges > $20'
+      comparisonOperator: GreaterThanOrEqualToThreshold
+      threshold: 20.0
+      metricName: EstimatedCharges
+      namespace: AWS/Billing
+      dimensions:
+        - name: 'Currency'
+          value: 'USD'
+      period: 28800 # 8 hrs
+      evaluationPeriods: 1
+      actionsEnabled: true
+      alarmActions:
+        - arn:aws:sns:us-east-1:063733696545:NotifyMe  # any valid AWS action strings
+        # - ${mySNScomp.topicArn} # an output from another component
+        # - ${mySNScomp}          # a reference to another component
+      statistic: Maximum
+      treatMissingData: missing
