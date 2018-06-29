@@ -21,6 +21,7 @@ try {
     outputFileName = `${String(Date.now())}-${outputFileName}.zip`
     const outputFilePath = path.join(tempPath, outputFileName)
 
+    // return the full path for the archived file
     return new Promise((resolve, reject) => {
       const output = fs.createWriteStream(outputFilePath)
       const archive = archiver('zip', {
@@ -32,11 +33,10 @@ try {
         archive.directory(packagePath, false)
         archive.finalize()
       })
-
       archive.on('error', (err) => reject(err))
-      output.on('close', async () => resolve(await fsp.readFileAsync(outputFilePath)))
+      output.on('close', () => resolve([outputFileName, outputFilePath]))
     })
   }
 } catch (e) {
-  console.log(`Error: ${e}`)
+  console.log(`Error in zipping source code.`)
 }
