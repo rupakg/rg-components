@@ -8,7 +8,8 @@ components:
       name: helloworld-${self.serviceId}-func
       entryPoint: helloworld
       sourceCodePath: ${self.path}/code
-      runtime: nodejs8.10
+      # runtime: nodejs8  // does not work
       locationId: us-east1
       projectId: credible-bay-195707
       keyFilename: ~/.gcloud/keyfile.json
+      deploymentBucket: sls-dep-gcf-helloworld-${self.serviceId}-func-bucket
