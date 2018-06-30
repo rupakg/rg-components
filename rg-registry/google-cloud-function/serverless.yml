@@ -126,6 +126,9 @@ outputTypes:
   runtime:
     type: string
     description: Runtime for the function.
+  sourceArchiveFilename:
+    type: string
+    description: The filename of source code archive zip file.
   sourceArchiveUrl:
     type: string
     description: The Google Cloud Storage URL, starting with gs://, pointing to the zip archive which contains the function.
