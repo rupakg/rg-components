@@ -48,20 +48,20 @@ const zipAndUploadSourceCode = async (
     await storage
       .createBucket(deploymentBucket)
       .then(() => {
-        console.log(`Deployment bucket '${deploymentBucket}' created.`)
+        // console.log(`Deployment bucket '${deploymentBucket}' created.`)
       })
       .catch(err => {
-        console.error('Error creating deployment bucket: ', err)
+        console.error('Error in creating deployment bucket: ', err)
       })
     // upload source code zip to bucket
     await storage
       .bucket(deploymentBucket)
       .upload(packRes[1])
       .then(() => {
-        console.log(`Source zip file '${packRes[0]}' uploaded to '${deploymentBucket}'.`)
+        // console.log(`Source zip file '${packRes[0]}' uploaded to '${deploymentBucket}'.`)
       })
       .catch(err => {
-        console.error('Error uploading source zip file:', err)
+        console.error('Error in uploading source code archive file: ', err)
       })
     // get object
     await storage
@@ -69,15 +69,14 @@ const zipAndUploadSourceCode = async (
       .file(packRes[0])
       .makePublic()
       .then(() => {
-        console.log(`Public Url: 'gs://${deploymentBucket}/${packRes[0]}'`)
+        // console.log(`Public Url: 'gs://${deploymentBucket}/${packRes[0]}'`)
       })
       .catch(err => {
-        console.error('Error fetching archive file object: ', err)
+        console.error('Error fetching archive file object url: ', err)
       })
     return `gs://${deploymentBucket}/${packRes[0]}`
-    // return `http://storage.googleapis.com/${deploymentBucket}/${packRes[0]}`
   } catch (e) {
-    console.error('Error in zipAndUploadSourceCode: ', e)
+    console.error('Error in archiving and uploading source code: ', e)
   }
 }
 
@@ -133,7 +132,6 @@ const createFunction = async ({
         }
         const requestParams = { auth: authClient, ...params }
         const res = await cloudfunctions.projects.locations.functions.create(requestParams)
-        // console.log('Create function data: ', resCreate)
         return res
       } catch (e) {
         console.log('Error in creating function: ', e)
@@ -142,19 +140,19 @@ const createFunction = async ({
   }
 }
 
-const getFunction = async (keyFilename, name, location) => {
+const getFunction = async (inputs) => {
   // get the newly created function data
+  const location = `projects/${inputs.projectId}/locations/${inputs.locationId}`
   try {
-    const authClient = getAuthClient(keyFilename)
+    const authClient = getAuthClient(inputs.keyFilename)
     if (authClient) {
       const resAuth = await authClient.authorize()
       if (resAuth) {
         const getParams = {
-          name: `${location}/functions/${name}`
+          name: `${location}/functions/${inputs.name}`
         }
         const requestGetParams = { auth: authClient, ...getParams }
         const res = await cloudfunctions.projects.locations.functions.get(requestGetParams)
-        // console.log('Get function data: ', res.data)
 
         return {
           name: res.data.name,
@@ -182,11 +180,11 @@ const deployFunction = async (inputs) => {
     const resCreate = await createFunction(inputs)
     let resGet = {}
     if (resCreate.status === 200) {
-      resGet = await getFunction(inputs.keyFilename, inputs.name, location)
+      resGet = await getFunction(inputs)
     }
     return resGet
   } catch (e) {
-    console.log('Error in deployFunction: ', e)
+    console.log('Error in deploying function: ', e)
   }
 }
 
@@ -194,13 +192,26 @@ const deploy = async (inputs, context) => {
   let outputs = context.state
 
   if (!context.state.name && inputs.name) {
-    context.log(`Creating Google Cloud Function: '${inputs.name}'`)
+    context.log(`Creating Google Cloud Function: '${inputs.name}'.`)
     outputs = await deployFunction(inputs)
   }
   context.saveState({ ...inputs, ...outputs })
   return outputs
 }
 
+const info = async (inputs, context) => {
+  if (!context.state.name) return {}
+
+  let outputs = context.state
+
+  const location = `projects/${inputs.projectId}/locations/${inputs.locationId}`
+  outputs = await getFunction(inputs)
+  context.saveState({ ...inputs, ...outputs })
+
+  context.log(`Function url: ${context.state.httpsTrigger.url}`)
+}
+
 module.exports = {
-  deploy
+  deploy,
+  info
 }
