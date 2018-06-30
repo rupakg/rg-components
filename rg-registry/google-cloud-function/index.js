@@ -24,7 +24,12 @@ const getAuthClient = (keyFilename) => {
     .JWT(key.client_email, null, key.private_key, ['https://www.googleapis.com/auth/cloud-platform'], null)
 }
 
-const zipAndUploadSourceCode = async (projectId, keyFilename, sourceCodePath, deploymentBucket) => {
+const zipAndUploadSourceCode = async (
+  projectId,
+  keyFilename,
+  sourceCodePath,
+  deploymentBucket
+) => {
   try {
     const credParts = keyFilename.split(path.sep)
     if (credParts[0] === '~') {
@@ -53,10 +58,10 @@ const zipAndUploadSourceCode = async (projectId, keyFilename, sourceCodePath, de
       .bucket(deploymentBucket)
       .upload(packRes[1])
       .then(() => {
-        console.log(`Source zip file '${packRes[0]}' uploaded to '${deploymentBucket}'.`);
+        console.log(`Source zip file '${packRes[0]}' uploaded to '${deploymentBucket}'.`)
       })
       .catch(err => {
-        console.error('Error uploading source zip file:', err);
+        console.error('Error uploading source zip file:', err)
       })
     // get object
     await storage
@@ -67,7 +72,7 @@ const zipAndUploadSourceCode = async (projectId, keyFilename, sourceCodePath, de
         console.log(`Public Url: 'gs://${deploymentBucket}/${packRes[0]}'`)
       })
       .catch(err => {
-        console.error('Error fetching archive file object: ', err);
+        console.error('Error fetching archive file object: ', err)
       })
     return `gs://${deploymentBucket}/${packRes[0]}`
     // return `http://storage.googleapis.com/${deploymentBucket}/${packRes[0]}`
@@ -101,7 +106,6 @@ const createFunction = async ({
   if (authClient) {
     const resAuth = await authClient.authorize()
     if (resAuth) {
-      let resCreate
       try {
         // upload the source code to google storage
         const zipUrl = await zipAndUploadSourceCode(projectId, keyFilename, sourceCodePath, deploymentBucket)
@@ -111,7 +115,7 @@ const createFunction = async ({
         }
         // TODO: Dynamically assign one of: sourceUploadUrl, sourceRepository or sourceArchiveUrl
         // TODO: Dynamically assign one of: httpsTrigger or eventTrigger
-        // TODO: Check why 'runtime' does not work. Only the default baue of 'nodejs6' works.
+        // TODO: Check why 'runtime' does not work. Only the default value of 'nodejs6' works.
         // create the function
         const params = {
           location: location,
@@ -123,44 +127,66 @@ const createFunction = async ({
             availableMemoryMb: availableMemoryMb,
             labels: labels,
             sourceArchiveUrl: sourceArchiveUrl,
-            httpsTrigger: {},
+            httpsTrigger: {}
             // runtime: runtime
           }
         }
         const requestParams = { auth: authClient, ...params }
-        resCreate = await cloudfunctions.projects.locations.functions.create(requestParams)
+        const res = await cloudfunctions.projects.locations.functions.create(requestParams)
         // console.log('Create function data: ', resCreate)
+        return res
       } catch (e) {
         console.log('Error in creating function: ', e)
       }
-      if (resCreate.status === 200) {
-        // get the newly created function data
-        try {
-          const getParams = {
-            name: `${location}/functions/${name}`
-          }
-          const requestGetParams = { auth: authClient, ...getParams }
-          const res = await cloudfunctions.projects.locations.functions.get(requestGetParams)
-          // console.log('Get function data: ', res.data)
+    }
+  }
+}
 
-          return {
-            name: res.data.name,
-            sourceArchiveUrl: res.data.sourceArchiveUrl,
-            httpsTrigger: res.data.httpsTrigger,
-            status: res.data.status,
-            entryPoint: res.data.entryPoint,
-            timeout: res.data.timeout,
-            availableMemoryMb: res.data.availableMemoryMb,
-            serviceAccountEmail: res.data.serviceAccountEmail,
-            updateTime: res.data.updateTime,
-            versionId: res.data.versionId,
-            runtime: res.data.runtime
-          }
-        } catch (e) {
-          console.log('Error in fetching function: ', e)
+const getFunction = async (keyFilename, name, location) => {
+  // get the newly created function data
+  try {
+    const authClient = getAuthClient(keyFilename)
+    if (authClient) {
+      const resAuth = await authClient.authorize()
+      if (resAuth) {
+        const getParams = {
+          name: `${location}/functions/${name}`
+        }
+        const requestGetParams = { auth: authClient, ...getParams }
+        const res = await cloudfunctions.projects.locations.functions.get(requestGetParams)
+        // console.log('Get function data: ', res.data)
+
+        return {
+          name: res.data.name,
+          sourceArchiveUrl: res.data.sourceArchiveUrl,
+          httpsTrigger: res.data.httpsTrigger,
+          status: res.data.status,
+          entryPoint: res.data.entryPoint,
+          timeout: res.data.timeout,
+          availableMemoryMb: res.data.availableMemoryMb,
+          serviceAccountEmail: res.data.serviceAccountEmail,
+          updateTime: res.data.updateTime,
+          versionId: res.data.versionId,
+          runtime: res.data.runtime
         }
       }
     }
+  } catch (e) {
+    console.log('Error in fetching function: ', e)
+  }
+}
+
+const deployFunction = async (inputs) => {
+  const location = `projects/${inputs.projectId}/locations/${inputs.locationId}`
+  try {
+    const resCreate = await createFunction(inputs)
+    let resGet = {}
+    if (resCreate.status === 200) {
+      resGet = await getFunction(inputs.keyFilename, inputs.name, location)
+    }
+    return resGet
+  } catch (e) {
+    console.log('Error in deployFunction: ', e)
   }
 }
 
@@ -169,7 +195,7 @@ const deploy = async (inputs, context) => {
 
   if (!context.state.name && inputs.name) {
     context.log(`Creating Google Cloud Function: '${inputs.name}'`)
-    outputs = await createFunction(inputs)
+    outputs = await deployFunction(inputs)
   }
   context.saveState({ ...inputs, ...outputs })
   return outputs
