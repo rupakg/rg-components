@@ -38,6 +38,10 @@ const getStorageClient = (keyFilename, projectId) => {
   return storage
 }
 
+const extractName = (fullName) => {
+  return fullName.split(path.sep)[5]
+}
+
 const zipAndUploadSourceCode = async (
   projectId,
   keyFilename,
@@ -55,7 +59,9 @@ const zipAndUploadSourceCode = async (
       // console.log(`Deployment bucket '${deploymentBucket}' created.`)
     })
     .catch(err => {
-      console.error('Error in creating deployment bucket: ', err)
+      if (err.code != 409) {
+        console.error('Error in creating deployment bucket: ', err)
+      }
     })
   // upload source code zip to bucket
   await storage
@@ -158,7 +164,7 @@ const getFunction = async (inputs) => {
       const res = await cloudfunctions.projects.locations.functions.get(requestGetParams)
 
       return {
-        name: res.data.name,
+        name: extractName(res.data.name),
         sourceArchiveUrl: res.data.sourceArchiveUrl,
         httpsTrigger: res.data.httpsTrigger,
         status: res.data.status,
@@ -175,6 +181,7 @@ const getFunction = async (inputs) => {
 }
 
 const deleteFunction = async (state) => {
+  const location = `projects/${state.projectId}/locations/${state.locationId}`
   const storage = getStorageClient(state.keyFilename, state.projectId)
   // delete source code archive object from deployment bucket
   await storage
@@ -204,7 +211,7 @@ const deleteFunction = async (state) => {
     const resAuth = await authClient.authorize()
     if (resAuth) {
       const delParams = {
-        name: state.name
+        name: `${location}/functions/${state.name}`
       }
       const requestDelParams = { auth: authClient, ...delParams }
       const res = await cloudfunctions.projects.locations.functions.delete(requestDelParams)
@@ -230,15 +237,40 @@ const deploy = async (inputs, context) => {
   let outputs = context.state
 
   if (!context.state.name && inputs.name) {
-    context.log(`Creating Google Cloud Function: '${inputs.name}'.`)
-    try {
-      outputs = await deployFunction(inputs)
-    } catch (e) {
-      console.log('Error in deploying function: ', e)
-    }
+    context.log(`Creating Google Cloud Function: '${inputs.name}'`)
+    outputs = await deployFunction(inputs)
+  } else if (context.state.name && !inputs.name) {
+    context.log(`Removing Google Cloud Function: ${context.state.name}`)
+    outputs = await deleteFunction(context.state)
+  } else if (inputs.name !== context.state.name) {
+    context.log(`Removing Google Cloud Function: ${context.state.name}`)
+    await deleteFunction(context.state)
+    context.log(`Creating Google Cloud Function: '${inputs.name}'`)
+    outputs = await deployFunction(inputs)
+  } else {
+    context.log(`Updating Google Cloud Function: ${inputs.name}`)
+    // outputs = await updateFunction(inputs)
   }
+
   context.saveState({ ...inputs, ...outputs })
   return outputs
+
+  // if (inputs.name && !context.state.name) {
+  //   context.log(`Creating Lambda: ${inputs.name}`)
+  //   outputs = await createLambda(inputs, context, role)
+  // } else if (context.state.name && !inputs.name) {
+  //   context.log(`Removing Lambda: ${context.state.name}`)
+  //   outputs = await deleteLambda(context.state.name)
+  // } else if (inputs.name !== context.state.name) {
+  //   context.log(`Removing Lambda: ${context.state.name}`)
+  //   await deleteLambda(context.state.name)
+  //   context.log(`Creating Lambda: ${inputs.name}`)
+  //   outputs = await createLambda(inputs, context, role)
+  // } else {
+  //   context.log(`Updating Lambda: ${inputs.name}`)
+  //   outputs = await updateLambda(inputs, context, role)
+  // }
+
 }
 
 const remove = async (inputs, context) => {
