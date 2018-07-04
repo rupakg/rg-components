@@ -12,4 +12,4 @@ components:
       locationId: us-east1
       projectId: credible-bay-195707
       keyFilename: ~/.gcloud/keyfile.json
-      deploymentBucket: sls-dep-gcf-helloworld-${self.serviceId}-func-bucket
+      deploymentBucket: sls-dep-gcf-${self.serviceId}-bucket
