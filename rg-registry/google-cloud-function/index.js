@@ -6,6 +6,8 @@ const path = require('path')
 const fs = require('fs-extra')
 const os = require('os')
 const pack = require('./pack')
+const crypto = require('crypto')
+const R = require('ramda')
 
 const cloudfunctions = google.cloudfunctions('v1')
 
@@ -42,51 +44,121 @@ const extractName = (fullName) => {
   return fullName.split(path.sep)[5]
 }
 
+// Util method to compare state values to inputs
+function compareInputsToState(inputs, state) {
+  const hasState = !!Object.keys(state).length
+  const initialData = {
+    // If no state keys... no state
+    hasState: hasState,
+    // default everything is equal
+    isEqual: true,
+    // Keys that are different
+    keys: [],
+    // Values of the keys that are different
+    diffs: {}
+  }
+  return Object.keys(inputs).reduce((acc, current) => {
+    // if values not deep equal. There are changes
+    if (!R.equals(inputs[current], state[current])) {
+      return {
+        hasState: hasState,
+        isEqual: false,
+        keys: acc.keys.concat(current),
+        diffs: {
+          ...acc.diffs,
+          ...{
+            [`${current}`]: {
+              inputs: inputs[current],
+              state: state[current]
+            }
+          }
+        }
+      }
+    }
+    return acc
+  }, initialData)
+}
+
+// determines if passed in input fileds have changed
+const hasInputsChanged = (componentData, inputFields) => {
+  const hasChanged = inputFields.map((k) => componentData.keys.includes(k))
+  return !componentData.isEqual && hasChanged.includes(true)
+}
+
 const zipAndUploadSourceCode = async (
   projectId,
   keyFilename,
   sourceCodePath,
-  deploymentBucket
+  deploymentBucket,
+  state
 ) => {
-  const storage = getStorageClient(keyFilename, projectId)
   // zip the source code and return archive zip file name and path as an array
   const packRes = await pack(sourceCodePath)
-
-  // create the bucket
-  await storage
-    .createBucket(deploymentBucket)
-    .then(() => {
-      // console.log(`Deployment bucket '${deploymentBucket}' created.`)
-    })
-    .catch(err => {
-      if (err.code != 409) {
-        console.error('Error in creating deployment bucket: ', err)
-      }
-    })
-  // upload source code zip to bucket
-  await storage
-    .bucket(deploymentBucket)
-    .upload(packRes[1])
-    .then(() => {
-      // console.log(`Source zip file '${packRes[0]}' uploaded to '${deploymentBucket}'.`)
-    })
-    .catch(err => {
-      console.error('Error in uploading source code archive file: ', err)
-    })
-  // get object
-  await storage
-    .bucket(deploymentBucket)
-    .file(packRes[0])
-    .makePublic()
-    .then(() => {
-      // console.log(`Public Url: 'gs://${deploymentBucket}/${packRes[0]}'`)
-    })
-    .catch(err => {
-      console.error('Error fetching archive file object url: ', err)
-    })
-  return {
-    sourceArchiveFilename: packRes[0],
-    sourceArchiveUrl: `gs://${deploymentBucket}/${packRes[0]}`
+  const hasSourceCodeChanged = (state && state.sourceArchiveHash !== packRes[2])
+  // compare with state if zip contents has changed
+  if (!state || !state.sourceArchiveHash || hasSourceCodeChanged) {
+    const storage = getStorageClient(keyFilename, projectId)
+    if (hasSourceCodeChanged) {
+      console.log('Source code changes detected. Uploading source archive file.')
+    } else {
+      console.log('Uploading source archive file.')
+    }
+    // create the bucket
+    await storage
+      .createBucket(deploymentBucket)
+      .then(() => {
+        // console.log(`Deployment bucket '${deploymentBucket}' created.`)
+      })
+      .catch(err => {
+        if (err.code != 409) {
+          console.error('Error in creating deployment bucket: ', err)
+        }
+      })
+    // if source code changed, delete old archive object
+    if (state && hasSourceCodeChanged) {
+      await storage
+        .bucket(deploymentBucket)
+        .file(state.sourceArchiveFilename)
+        .delete()
+        .then(() => {
+          // console.log(`Source zip file object '${state.sourceArchiveFilename}' deleted.`)
+        })
+        .catch(err => {
+          console.error('Error in deleting source code archive object file: ', err.message)
+        })
+    }
+    // upload source code zip to bucket
+    await storage
+      .bucket(deploymentBucket)
+      .upload(packRes[1])
+      .then(() => {
+        // console.log(`Source zip file '${packRes[0]}' uploaded to '${deploymentBucket}'.`)
+      })
+      .catch(err => {
+        console.error('Error in uploading source code archive file: ', err)
+      })
+    // get object
+    await storage
+      .bucket(deploymentBucket)
+      .file(packRes[0])
+      .makePublic()
+      .then(() => {
+        // console.log(`Public Url: 'gs://${deploymentBucket}/${packRes[0]}'`)
+      })
+      .catch(err => {
+        console.error('Error fetching archive file object url: ', err)
+      })
+    return {
+      sourceArchiveFilename: packRes[0],
+      sourceArchiveUrl: `gs://${deploymentBucket}/${packRes[0]}`,
+      sourceArchiveHash: packRes[2]
+    }
+  } else {
+    return {
+      sourceArchiveFilename: state.sourceArchiveFilename,
+      sourceArchiveUrl: state.sourceArchiveUrl,
+      sourceArchiveHash: state.sourceArchiveHash
+    }
   }
 }
 
@@ -116,10 +188,10 @@ const createFunction = async ({
     const resAuth = await authClient.authorize()
     if (resAuth) {
       // upload the source code to google storage
-      const zipUrl = await zipAndUploadSourceCode(projectId, keyFilename, sourceCodePath, deploymentBucket)
+      const zipRes = await zipAndUploadSourceCode(projectId, keyFilename, sourceCodePath, deploymentBucket, null)
       // Only one of sourceArchiveUrl, sourceRepository or sourceUploadUrl is allowed
       if (!sourceUploadUrl && !sourceRepository) {
-        sourceArchiveUrl = zipUrl.sourceArchiveUrl
+        sourceArchiveUrl = zipRes.sourceArchiveUrl
       }
       // TODO: Dynamically assign one of: sourceUploadUrl, sourceRepository or sourceArchiveUrl
       // TODO: Dynamically assign one of: httpsTrigger or eventTrigger
@@ -143,8 +215,9 @@ const createFunction = async ({
       const res = await cloudfunctions.projects.locations.functions.create(requestParams)
       return {
         status: res.status,
-        sourceArchiveFilename: zipUrl.sourceArchiveFilename,
-        sourceArchiveUrl: zipUrl.sourceArchiveUrl
+        sourceArchiveFilename: zipRes.sourceArchiveFilename,
+        sourceArchiveUrl: zipRes.sourceArchiveUrl,
+        sourceArchiveHash: zipRes.sourceArchiveHash
       }
     }
   }
@@ -221,56 +294,120 @@ const deleteFunction = async (state) => {
   }
 }
 
+const patchFunction = async ({
+  name,
+  description,
+  entryPoint,
+  sourceCodePath,
+  timeout,
+  availableMemoryMb,
+  labels,
+  sourceArchiveUrl,
+  sourceRepository,
+  sourceUploadUrl,
+  httpsTrigger,
+  eventTrigger,
+  runtime,
+  projectId,
+  locationId,
+  keyFilename,
+  env,
+  deploymentBucket
+}, state, archiveRes, updateMask) => {
+  const location = `projects/${projectId}/locations/${locationId}`
+  const authClient = getAuthClient(keyFilename)
+  if (authClient) {
+    const resAuth = await authClient.authorize()
+    if (resAuth) {
+      // Only one of sourceArchiveUrl, sourceRepository or sourceUploadUrl is allowed
+      if (!sourceUploadUrl && !sourceRepository) {
+        sourceArchiveUrl = archiveRes.sourceArchiveUrl
+      }
+      // TODO: Dynamically assign one of: sourceUploadUrl, sourceRepository or sourceArchiveUrl
+      // TODO: Dynamically assign one of: httpsTrigger or eventTrigger
+      // TODO: Check why 'runtime' does not work. Only the default value of 'nodejs6' works.
+      // create the function
+      const params = {
+        name: `${location}/functions/${name}`,
+        updateMask: updateMask,
+        resource: {
+          description: description,
+          entryPoint: entryPoint,
+          timeout: timeout,
+          availableMemoryMb: availableMemoryMb,
+          labels: labels,
+          sourceArchiveUrl: sourceArchiveUrl,
+          httpsTrigger: {}
+          // runtime: runtime
+        }
+      }
+      const requestParams = { auth: authClient, ...params }
+      const res = await cloudfunctions.projects.locations.functions.patch(requestParams)
+      return {
+        status: res.status,
+        sourceArchiveFilename: archiveRes.sourceArchiveFilename,
+        sourceArchiveUrl: archiveRes.sourceArchiveUrl,
+        sourceArchiveHash: archiveRes.sourceArchiveHash
+      }
+    }
+  }
+}
+
 const deployFunction = async (inputs) => {
-  const location = `projects/${inputs.projectId}/locations/${inputs.locationId}`
-  let outputs = {}
-  let resGet = {}
+  let outputs
   const resCreate = await createFunction(inputs)
   if (resCreate.status === 200) {
-    resGet = await getFunction(inputs)
+    const resGet = await getFunction(inputs)
     outputs = { ...resCreate, ...resGet }
+  }
+  return outputs
+}
+
+const updateFunction = async (inputs, state, zipRes, updateMask) => {
+  let outputs
+  const resPatch = await patchFunction(inputs, state, zipRes, updateMask)
+  if (resPatch.status === 200) {
+    const resGet = await getFunction(inputs)
+    outputs = { ...resPatch, ...resGet }
   }
   return outputs
 }
 
 const deploy = async (inputs, context) => {
   let outputs = context.state
+  const componentData = compareInputsToState(inputs, context.state)
+  const inputsToRecreate = ['name', 'locationId', 'projectId', 'keyFilename', 'deploymentBucket']
+  const inputsToUpdate = ['entryPoint', 'sourceCodePath', 'runtime']
 
-  if (!context.state.name && inputs.name) {
+  if (!componentData.hasState) {
     context.log(`Creating Google Cloud Function: '${inputs.name}'`)
     outputs = await deployFunction(inputs)
   } else if (context.state.name && !inputs.name) {
     context.log(`Removing Google Cloud Function: ${context.state.name}`)
-    outputs = await deleteFunction(context.state)
-  } else if (inputs.name !== context.state.name) {
+    await deleteFunction(context.state)
+  } else if (componentData.hasState && hasInputsChanged(componentData, inputsToRecreate)) {
     context.log(`Removing Google Cloud Function: ${context.state.name}`)
     await deleteFunction(context.state)
     context.log(`Creating Google Cloud Function: '${inputs.name}'`)
     outputs = await deployFunction(inputs)
   } else {
-    context.log(`Updating Google Cloud Function: ${inputs.name}`)
-    // outputs = await updateFunction(inputs)
+    // zip & upload the source code to google storage
+    const zipRes = await zipAndUploadSourceCode(inputs.projectId, inputs.keyFilename, inputs.sourceCodePath, inputs.deploymentBucket, context.state)
+
+    if (componentData.hasState &&
+        zipRes.sourceArchiveHash !== context.state.sourceArchiveHash ||
+        hasInputsChanged(componentData, inputsToUpdate)) {
+      context.log(`Updating Google Cloud Function: ${inputs.name}`)
+      let updateMask = componentData.keys || []
+      if (zipRes.sourceArchiveHash !== context.state.sourceArchiveHash) {
+        updateMask.push('sourceArchiveUrl')
+      }
+      outputs = await updateFunction(inputs, context.state, zipRes, updateMask)
+    }
   }
 
   context.saveState({ ...inputs, ...outputs })
   return outputs
-
-  // if (inputs.name && !context.state.name) {
-  //   context.log(`Creating Lambda: ${inputs.name}`)
-  //   outputs = await createLambda(inputs, context, role)
-  // } else if (context.state.name && !inputs.name) {
-  //   context.log(`Removing Lambda: ${context.state.name}`)
-  //   outputs = await deleteLambda(context.state.name)
-  // } else if (inputs.name !== context.state.name) {
-  //   context.log(`Removing Lambda: ${context.state.name}`)
-  //   await deleteLambda(context.state.name)
-  //   context.log(`Creating Lambda: ${inputs.name}`)
-  //   outputs = await createLambda(inputs, context, role)
-  // } else {
-  //   context.log(`Updating Lambda: ${inputs.name}`)
-  //   outputs = await updateLambda(inputs, context, role)
-  // }
-
 }
 
 const remove = async (inputs, context) => {

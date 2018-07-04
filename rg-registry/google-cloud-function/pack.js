@@ -3,11 +3,8 @@ const crypto = require('crypto')
 const fs = require('fs-extra')
 const os = require('os')
 const archiver = require('archiver')
-const BbPromise = require('bluebird')
 
 try {
-  const fsp = BbPromise.promisifyAll(fs)
-
   module.exports = async (packagePath, tempPath) => {
     // Set defaults
     tempPath = tempPath || os.tmpdir()
@@ -34,9 +31,17 @@ try {
         archive.finalize()
       })
       archive.on('error', (err) => reject(err))
-      output.on('close', () => resolve([outputFileName, outputFilePath]))
+      output.on('close', () => {
+        try {
+          const zipContents = fs.readFileSync(outputFilePath)
+          const outputFileHash = crypto.createHash('sha256').update(zipContents).digest('base64')
+          resolve([outputFileName, outputFilePath, outputFileHash])
+        } catch (e) {
+          console.log('zip contents error', e)
+        }
+      })
     })
   }
 } catch (e) {
-  console.log(`Error in zipping source code.`)
+  console.log('Error in zipping source code.')
 }
