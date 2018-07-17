@@ -1,0 +1,15 @@
+type: gcf-helloworld-func
+version: 0.0.1
+
+components:
+  helloworldfunc:
+    type: ../../rg-registry/google-cloud-function
+    inputs:
+      name: helloworld-${self.serviceId}-func
+      entryPoint: helloworld
+      sourceCodePath: ${self.path}/code
+      # runtime: nodejs8  // does not work
+      locationId: us-east1
+      projectId: credible-bay-195707
+      keyFilename: ~/.gcloud/keyfile.json
+      deploymentBucket: sls-dep-gcf-${self.serviceId}-bucket
